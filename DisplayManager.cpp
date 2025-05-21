@@ -1,24 +1,25 @@
-/* -------------------- DisplayManager.cpp -------------------- */
+/* ---------------- DisplayManager.cpp (fixed) ---------------- */
 #include "DisplayManager.h"
 #include "ST7365P_Display.h"
 #include "MenuState.h"
 #include "InterlockManager.h"
 #include "AuxManager.h"
 
-/* === single global display instance (visible to all .cpps) === */
+/* ───── single global display instance ───── */
 ST7365P_Display tft;
 
-/* ─────────── internal helpers ─────────── */
+/* helpers declared up-front */
 static void paintTab(TabID tab, bool selected);
 static void paintOverviewItem(uint8_t idx, bool selected);
-static void paintDummyItem(uint8_t idx, bool selected);
-void        redrawAuxRow(uint8_t idx);   // from AuxManager.cpp
+static void paintDummyItem   (uint8_t idx, bool selected);
+void        redrawAuxRow     (uint8_t idx);          // from AuxManager.cpp
 
-/* remember what is currently shown */
 static uint8_t lastTab  = 0;
 static int8_t  lastItem = NO_SELECTION;
 
-/* ═════════════════  TAB HEADER  ═════════════════ */
+/* ─────────────────────────────────────────── */
+/* 1.  HEADER (TAB BAR)                        */
+/* ─────────────────────────────────────────── */
 static void paintTab(TabID tab, bool sel)
 {
     const uint16_t x = 10 + tab * 160;
@@ -30,11 +31,19 @@ static void paintTab(TabID tab, bool sel)
         case TAB_OVERVIEW:  tft.print("Overview");  break;
         case TAB_SETTINGS:  tft.print("Settings");  break;
         case TAB_AUXILIARY: tft.print("Aux");       break;
-        default: break;
     }
 }
 
-/* ═════════════════  OVERVIEW ROW  ═════════════════ */
+/* helper ─ redraw the whole header in one go                        */
+static void refreshHeader()
+{
+    for (uint8_t i = 0; i < TAB_COUNT; ++i)
+        paintTab((TabID)i, i == menuState.currentTab);
+}
+
+/* ─────────────────────────────────────────── */
+/* 2.  OVERVIEW ROW                            */
+/* ─────────────────────────────────────────── */
 static void drawStatusCircle(int16_t x,int16_t y,uint16_t col,bool outline)
 {
     if (outline){
@@ -46,7 +55,7 @@ static void drawStatusCircle(int16_t x,int16_t y,uint16_t col,bool outline)
 static void paintOverviewItem(uint8_t i,bool sel)
 {
     const uint16_t y = 30 + i*24;
-    const auto &it  = interlocks[i];
+    const auto &it   = interlocks[i];
 
     /* row background */
     tft.fillRect(0,y,480,24, sel?COLOR_SELECTED_BG:COLOR_BLACK);
@@ -55,32 +64,35 @@ static void paintOverviewItem(uint8_t i,bool sel)
     tft.setCursor(2,y+6);
     tft.print(it.label);
 
-    /* status circle */
-    bool outline=false;
+    /* status colour -------------------------------------------------- */
+    bool outline = false;
     uint16_t col;
 
-    if (menuState.editMode && i==menuState.selectedItem){
-        /* preview during edit */
-        switch(menuState.editStateIndex){
-            case 0: col = COLOR_RED;   outline=false; break;
-            case 1: col = COLOR_RED;   outline=true;  break;
-            case 2: col = COLOR_GREEN; outline=true;  break;
+    if (menuState.editMode && i == menuState.selectedItem) {
+        /* preview while cycling 0-1-2 */
+        switch (menuState.editStateIndex) {
+            case 0: col = COLOR_RED;   outline = false; break;
+            case 1: col = COLOR_RED;   outline = true;  break;
+            case 2: col = COLOR_GREEN; outline = true;  break;
         }
     } else {
-        /* live state */
         bool sim = isSimulated(it.port,it.bit);
-        if (sim){
-            bool o = (readOutputRegister(it.port)>>it.bit)&1;
-            col = o?COLOR_RED:COLOR_GREEN; outline=true;
-        } else {
-            bool v = readInterlock(it.port,it.bit);
-            col = v?COLOR_GREEN:COLOR_RED; outline=false;
+        if (sim) {                               /* simulation colours  */
+            bool o = (readOutputRegister(it.port)>>it.bit) & 1;
+            col = o ? COLOR_GREEN : COLOR_RED;
+            outline = true;
+        } else {                                 /* real input          */
+            bool v = readInterlock(it.port,it.bit);   // LOW = FAULT
+            col = v ? COLOR_GREEN : COLOR_RED;        // green ↔ red swap
+            outline = false;
         }
     }
     drawStatusCircle(460,y+12,col,outline);
 }
 
-/* ═════════════════  DUMMY ROWS (SETTINGS)  ═════════════════ */
+/* ─────────────────────────────────────────── */
+/* 3.  SETTINGS – placeholder rows            */
+/* ─────────────────────────────────────────── */
 static void paintDummyItem(uint8_t idx,bool sel)
 {
     const uint16_t y = 30 + idx*24;
@@ -92,22 +104,20 @@ static void paintDummyItem(uint8_t idx,bool sel)
     tft.print(idx+1);
 }
 
-/* ═════════════════  PUBLIC API  ═════════════════ */
+/* ─────────────────────────────────────────── */
+/* 4.  PUBLIC API                              */
+/* ─────────────────────────────────────────── */
 void redrawAll()
 {
-    /* header */
-    tft.fillRect(0,0,480,24,COLOR_BLACK);
-    for(uint8_t i=0;i<TAB_COUNT;++i) paintTab((TabID)i,i==menuState.currentTab);
+    refreshHeader();                                      /* full header */
 
-    /* body */
-    tft.fillRect(0,30,480,242,COLOR_BLACK);
+    tft.fillRect(0,30,480,242,COLOR_BLACK);               /* clear body  */
     uint8_t n = itemCountForTab(menuState.currentTab);
     for(uint8_t i=0;i<n;++i){
         switch(menuState.currentTab){
             case TAB_OVERVIEW:  paintOverviewItem(i,false); break;
-            case TAB_SETTINGS:  paintDummyItem(i,false);    break;
-            case TAB_AUXILIARY: redrawAuxRow(i);            break;
-            default: break;
+            case TAB_SETTINGS:  paintDummyItem   (i,false); break;
+            case TAB_AUXILIARY: redrawAuxRow     (i);       break;
         }
     }
     updateEditIndicator(menuState.editMode);
@@ -120,19 +130,15 @@ void updateTab()
 {
     if (menuState.currentTab == lastTab) return;
 
-    /* repaint headers */
-    paintTab((TabID)lastTab,false);
-    paintTab(menuState.currentTab,true);
+    refreshHeader();                                      /* full header */
 
-    /* clear body & draw new tab */
     tft.fillRect(0,30,480,242,COLOR_BLACK);
     uint8_t n = itemCountForTab(menuState.currentTab);
     for(uint8_t i=0;i<n;++i){
         switch(menuState.currentTab){
             case TAB_OVERVIEW:  paintOverviewItem(i,false); break;
-            case TAB_SETTINGS:  paintDummyItem(i,false);    break;
-            case TAB_AUXILIARY: redrawAuxRow(i);            break;
-            default: break;
+            case TAB_SETTINGS:  paintDummyItem   (i,false); break;
+            case TAB_AUXILIARY: redrawAuxRow     (i);       break;
         }
     }
     updateEditIndicator(menuState.editMode);
@@ -143,26 +149,24 @@ void updateTab()
 
 void updateItem()
 {
-    /* deselect previous */
+    /* deselect old row */
     if (lastItem != NO_SELECTION){
         switch(menuState.currentTab){
             case TAB_OVERVIEW:  paintOverviewItem(lastItem,false); break;
             case TAB_SETTINGS:  paintDummyItem   (lastItem,false); break;
             case TAB_AUXILIARY: redrawAuxRow     (lastItem);       break;
-            default: break;
         }
     }
-
-    /* select new   */
+    /* draw newly selected row */
     if (menuState.selectedItem != NO_SELECTION){
         switch(menuState.currentTab){
             case TAB_OVERVIEW:  paintOverviewItem(menuState.selectedItem,true); break;
             case TAB_SETTINGS:  paintDummyItem   (menuState.selectedItem,true); break;
             case TAB_AUXILIARY: redrawAuxRow     (menuState.selectedItem);      break;
-            default: break;
         }
     }
     lastItem = menuState.selectedItem;
+    refreshHeader();                                      /* keep header pristine */
 }
 
 void updateEditIndicator(bool on)
@@ -206,13 +210,12 @@ void initDisplay()
     redrawAll();
 }
 
-void paintItem(uint8_t idx, bool selected)
+/* helper for modules that only know the index */
+void paintItem(uint8_t idx, bool sel)
 {
-    switch (menuState.currentTab)
-    {
-        case TAB_OVERVIEW:  paintOverviewItem(idx, selected); break;
-        case TAB_SETTINGS:  paintDummyItem   (idx, selected); break;
-        case TAB_AUXILIARY: redrawAuxRow     (idx);           break;
-        default: break;
+    switch (menuState.currentTab){
+        case TAB_OVERVIEW:  paintOverviewItem(idx,sel); break;
+        case TAB_SETTINGS:  paintDummyItem   (idx,sel); break;
+        case TAB_AUXILIARY: redrawAuxRow     (idx);     break;
     }
 }

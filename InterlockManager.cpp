@@ -116,6 +116,8 @@ void applyEditStateToItem(uint8_t itemIndex, uint8_t state) {
       tcaOut(it.port, it.bit, true);
       break;
   }
+  //if (state == 0)       tcaDir(it.port, it.bit, true);   // back to input
+//else                  /* keep as output */;
 }
 
 uint8_t readOutputRegister(uint8_t port) {

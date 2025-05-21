@@ -1,82 +1,73 @@
-/*********************************************************************
- *  AuxManager.cpp  –  AUX-tab logic (LCD brightness, internal test,
- *                     EEPROM format, autoreset, locked LUT)
- *********************************************************************/
-
+/* ---------- AuxManager.cpp (full file) ---------- */
 #include "AuxManager.h"
 #include <Arduino.h>
 #include <Wire.h>
-
+#include <stdio.h>                   // snprintf
+#include "ST7365P_Display.h"         // TFT driver
 #include "MenuState.h"
-#include "DisplayManager.h"      // tft, colours, updateEditIndicator()
-#include "ButtonManager.h"       // pollButtons() for wait-loops
-#include "InterlockManager.h"    // readInterlock(), sendResetPulse()
-#include "EepromManager.h"       // eepromChipErase()
-#include "ST7365P_Display.h"
+#include "DisplayManager.h"          // tft & colour constants
+#include "ButtonManager.h"
+#include "EncoderManager.h"
+#include "InterlockManager.h"
+#include "EepromManager.h"
 
-extern ST7365P_Display tft;      // single global instance from DisplayManager
+extern ST7365P_Display tft;          // single global instance (defined in
+                                     // DisplayManager.cpp)
 
-
-/* ─────────── RT4527A back-light driver ─────────── */
-
-static constexpr uint8_t RT_ADDR0 = 0x36;     // A0 strap = 0
-static constexpr uint8_t RT_ADDR1 = 0x37;     // A0 strap = 1
-static uint8_t rtAddr = 0;                    // filled by detectRt()
+/* ───── RT4527A back-light driver ───── */
+static constexpr uint8_t RT_A0_LOW  = 0x36;
+static constexpr uint8_t RT_A0_HIGH = 0x37;
+static uint8_t rtAddr = 0;           // filled by detectRt()
 
 static bool rtWrite(uint8_t reg, uint8_t val)
 {
     Wire.beginTransmission(rtAddr);
-    Wire.write(reg);
-    Wire.write(val);
+    Wire.write(reg); Wire.write(val);
     return Wire.endTransmission() == 0;
 }
-
 static bool detectRt()
 {
-    const uint8_t list[2] = { RT_ADDR0, RT_ADDR1 };
-    for (uint8_t a : list)
-    {
-        Wire.beginTransmission(a);
-        if (Wire.endTransmission() == 0) { rtAddr = a; return true; }
+    const uint8_t addr[2] = { RT_A0_LOW, RT_A0_HIGH };
+
+    for (uint8_t i = 0; i < 2; ++i) {
+        Wire.beginTransmission(addr[i]);
+        if (Wire.endTransmission() == 0) {
+            rtAddr = addr[i];
+            return true;             // device found
+        }
     }
-    return false;
+    return false;                     // neither answered
 }
+static void rtSetDC()                     { rtWrite(0x00, 0x01); } // DC mode
+static void rtSetBrightness(uint8_t code) { rtWrite(0x01, code); }
 
-static inline void rtSetDcMode()             { rtWrite(0x00, 0x01); } // DC dim
-static inline void setBacklight(uint8_t val) { rtWrite(0x01, val);  }
-
-/* ─────────── persistent AUX state ─────────── */
-
-AuxState auxState =
-{
-    /* lcdBrightness   */ 128,
-    /* autoResetEnable */ false,
-    /* autoResetDelay  */ 500,
-    /* editMode        */ AUX_EDIT_NONE
+/* ───── persistent AUX state ───── */
+AuxState auxState = {
+    .lcdBrightness   = 128,
+    .autoResetEnable = false,
+    .autoResetDelay  = 500,
+    .editMode        = AUX_EDIT_NONE
 };
 
-/* ─────────── autoreset background tick ─────────── */
-
+/* ───── autoreset background tick ───── */
 static bool     arPending = false;
-static uint32_t arT0      = 0;
+static uint32_t arStartMs = 0;
 
 void auxTick()
 {
     if (!auxState.autoResetEnable) return;
 
-    bool giLow = readInterlock(1, 2);               // P10 LOW → interlock
-    if (giLow && !arPending) { arPending = true; arT0 = millis(); }
+    bool giFault = !readInterlock(1, 2);   // P10 LOW = fault
+    if (giFault && !arPending) { arPending = true; arStartMs = millis(); }
 
-    if (arPending && (millis() - arT0) >= auxState.autoResetDelay)
-    {
-        sendResetPulse();
+    if (arPending && millis() - arStartMs >= auxState.autoResetDelay) {
+        sendResetPulse();                  // 500 ms pulse on P7 & P14
         arPending = false;
     }
 }
 
-/* ─────────── screen helpers ─────────── */
-
-void redrawAuxRow(uint8_t idx)
+/* ───── line renderer for AUX tab (used by DisplayManager) ───── */
+void redrawAuxRow(uint8_t idx)      // keep extern linkage!
 {
     const uint16_t y   = 30 + idx * 24;
     const bool     sel = (idx == menuState.selectedItem);
@@ -86,69 +77,59 @@ void redrawAuxRow(uint8_t idx)
     tft.setTextSize(2);
     tft.setTextColor(sel ? COLOR_YELLOW : COLOR_WHITE);
 
-    switch (idx)
-    {
+    switch (idx) {
         case AUX_LCD_BRIGHTNESS:
-            tft.print("LCD brightness: ");
+            tft.print(F("LCD brightness: "));
             tft.print(auxState.lcdBrightness);
             break;
 
         case AUX_INTERNAL_TEST:
-            tft.print("Internal test  (long OK)");
+            tft.print(F("Internal test  (long OK)"));
             break;
 
         case AUX_EEPROM_FORMAT:
-            tft.print("EEPROM format  (long OK)");
+            tft.print(F("EEPROM format  (long OK)"));
             break;
 
         case AUX_AUTO_RESET:
-            tft.print("Autoreset: ");
-            tft.print(auxState.autoResetEnable ? "ON " : "OFF");
-            tft.print("  t=");
+            tft.print(F("Autoreset: "));
+            tft.print(auxState.autoResetEnable ? F("ON ") : F("OFF"));
+            tft.print(F("  t="));
             tft.print(auxState.autoResetDelay);
-            tft.print(" ms");
+            tft.print(F(" ms"));
             break;
 
         case AUX_POWER_LUT:
-            tft.print("Power LUT  (locked)");
+            tft.print(F("Power LUT  (locked)"));
             break;
     }
 }
+static void redrawAuxList() { for (uint8_t i = 0; i < AUX_COUNT; ++i) redrawAuxRow(i); }
 
-static void redrawAuxList()
-{
-    for (uint8_t i = 0; i < AUX_COUNT; ++i) redrawAuxRow(i);
-}
-
-/* ─────────── public init ─────────── */
-
+/* ───── public init ───── */
 void auxInit()
 {
-    Wire.begin();                       // ensure I²C up
-    if (detectRt()) rtSetDcMode();
-    setBacklight(auxState.lcdBrightness);
+    Wire.begin();
+    if (detectRt()) rtSetDC();
+    rtSetBrightness(auxState.lcdBrightness);
 }
 
-/* ─────────── encoder handler ─────────── */
-
-void auxEncoder(int8_t d)
+/* ───── encoder handler ───── */
+void auxEncoder(int8_t delta)
 {
     switch (menuState.selectedItem)
     {
-        /* live 0–255 brightness ------------------------------------------------ */
         case AUX_LCD_BRIGHTNESS:
-            auxState.lcdBrightness = constrain(
-                auxState.lcdBrightness + d, 0, 255);
-            setBacklight(auxState.lcdBrightness);
+            auxState.lcdBrightness = constrain(auxState.lcdBrightness + delta,
+                                               0, 255);
+            rtSetBrightness(auxState.lcdBrightness);
             redrawAuxRow(AUX_LCD_BRIGHTNESS);
             break;
 
-        /* autoreset delay 0–1000 ms in 10 ms steps ---------------------------- */
         case AUX_AUTO_RESET:
-            if (auxState.editMode == AUX_EDIT_BYTE)
-            {
-                auxState.autoResetDelay = constrain(
-                    auxState.autoResetDelay + d * 10, 0, 1000);
+            if (auxState.editMode == AUX_EDIT_BYTE) {
+                auxState.autoResetDelay =
+                    constrain(auxState.autoResetDelay + delta * 10, 0, 1000);
                 redrawAuxRow(AUX_AUTO_RESET);
             }
             break;
@@ -157,102 +138,94 @@ void auxEncoder(int8_t d)
     }
 }
 
-/* ─────────── OK short ─────────── */
-
+/* ───── short OK ───── */
 void auxHandleShort()
 {
     if (menuState.selectedItem == AUX_AUTO_RESET &&
-        auxState.editMode == AUX_EDIT_BYTE)
+        auxState.editMode     == AUX_EDIT_BYTE)
     {
-        auxState.editMode     = AUX_EDIT_NONE;
-        menuState.editMode    = false;              // ═══ keep flag in sync ═══
+        auxState.editMode = AUX_EDIT_NONE;
         updateEditIndicator(false);
         redrawAuxRow(AUX_AUTO_RESET);
     }
 }
 
-/* ─────────── OK long ─────────── */
-
+/* ───── long OK ───── */
 void auxHandleLong()
 {
     switch (menuState.selectedItem)
     {
-        /* 1) internal I²C / SPI probe ---------------------------------------- */
-        case AUX_INTERNAL_TEST:
-        {
+        /* 1) device probe ------------------------------------- */
+        case AUX_INTERNAL_TEST: {
             tft.fillRect(0, 30, 480, 242, COLOR_BLACK);
             tft.setTextSize(2); tft.setTextColor(COLOR_WHITE);
             tft.setCursor(4, 34);
 
-            struct { const char* n; uint8_t a; } dev[] =
-            {
-                { "TCA9555 MCU", 0x20 }, { "ADC PMOP",  0x21 },
-                { "ADC RFOPD",   0x22 }, { "VR PMOP",   0x28 },
-                { "VR RFOPD",    0x2B }, { "RT4527A MB",0x36 },
+            struct Dev { const char* n; uint8_t a; };
+            const Dev devs[] = {
+                { "TCA9555 MCU", 0x20 }, { "ADC PMOP",   0x21 },
+                { "ADC RFOPD",   0x22 }, { "VR PMOP",    0x28 },
+                { "VR RFOPD",    0x2B }, { "RT4527A MB", 0x36 },
                 { "EEPROM MCU",  0x50 }
             };
 
-            for (auto& p : dev)
-            {
-                Wire.beginTransmission(p.a);
-                bool ok = (Wire.endTransmission() == 0);
+            char line[40];
+            for (auto& d : devs) {
+                Wire.beginTransmission(d.a);
+                bool ok = Wire.endTransmission() == 0;
                 tft.setTextColor(ok ? COLOR_GREEN : COLOR_RED);
-                tft.print(p.n); tft.print(" @0x"); tft.print(p.a, HEX);
-                tft.print(ok ? "  OK" : "  MISSING"); tft.print('\n');
+                snprintf(line, sizeof(line), "%-12s @0x%02X %s",
+                         d.n, d.a, ok ? "OK" : "MISSING");
+                tft.print(line); tft.print('\n');
             }
 
-            /* very simple SPI-flash presence: CS = PA21 (D7) must pull low */
+            /* crude SPI-flash probe */
             pinMode(7, OUTPUT); digitalWrite(7, LOW); delayMicroseconds(2);
             bool spiOk = (digitalRead(7) == LOW);
             digitalWrite(7, HIGH); pinMode(7, INPUT_PULLUP);
 
             tft.setTextColor(spiOk ? COLOR_GREEN : COLOR_RED);
-            tft.print("SPI-Flash       ");
-            tft.print(spiOk ? "OK" : "MISSING");
+            tft.print(F("SPI-Flash       "));
+            tft.print(spiOk ? F("OK") : F("MISSING"));
 
-            delay(10000);                       // 10 s pause
+            /* 10-s wait with UI alive */
+            uint32_t t0 = millis();
+            while (millis() - t0 < 10000) {
+                pollButtons(); pollEncoder(); auxTick();
+            }
             redrawAuxList();
             break;
         }
 
-        /* 2) EEPROM chip-erase ----------------------------------------------- */
-        case AUX_EEPROM_FORMAT:
-        {
+        /* 2) EEPROM format ------------------------------------ */
+        case AUX_EEPROM_FORMAT: {
             tft.fillRect(100, 120, 280, 40, COLOR_BLACK);
             tft.drawRect(100, 120, 280, 40, COLOR_WHITE);
             tft.setCursor(110, 130);
             tft.setTextSize(2); tft.setTextColor(COLOR_WHITE);
-            tft.print("Formatting…");
+            tft.print(F("Formatting …"));
             eepromChipErase();
             delay(600);
-            redrawAll();
+            redrawAuxList();
             break;
         }
 
-        /* 3) autoreset toggle / enter-leave delay edit ------------------------ */
+        /* 3) autoreset toggle / enter delay edit -------------- */
         case AUX_AUTO_RESET:
-        {
-            if (auxState.editMode == AUX_EDIT_NONE)          // entering
-            {
+            if (auxState.editMode == AUX_EDIT_NONE) {
                 auxState.autoResetEnable = !auxState.autoResetEnable;
-                if (auxState.autoResetEnable)
-                {
-                    auxState.editMode  = AUX_EDIT_BYTE;
-                    menuState.editMode = true;               // ═ sync ═
+                if (auxState.autoResetEnable) {
+                    auxState.editMode = AUX_EDIT_BYTE;
                     updateEditIndicator(true);
                 }
-            }
-            else                                             // leaving
-            {
-                auxState.editMode  = AUX_EDIT_NONE;
-                menuState.editMode = false;                  // ═ sync ═
+            } else {
+                auxState.editMode = AUX_EDIT_NONE;
                 updateEditIndicator(false);
             }
-            redrawAuxList();
-            //redrawAuxRow(AUX_AUTO_RESET);
+            redrawAuxRow(AUX_AUTO_RESET);
             break;
-        }
 
         default: break;
     }
 }
+/* ---------------- end of file ---------------- */

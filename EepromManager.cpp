@@ -2,6 +2,9 @@
 #include <Wire.h>
 #include "InterlockManager.h"
 #include "MenuState.h"
+#include "ButtonManager.h"   // pollButtons()
+#include "EncoderManager.h"  // pollEncoder()
+#include "AuxManager.h"      // auxTick()
 
 // ───── Internal Helpers ─────
 uint8_t eepromRead(uint32_t addr) {
@@ -40,11 +43,17 @@ void eepromWrite(uint32_t addr, uint8_t data) {
   delay(5);  // mandatory EEPROM write delay
 }
 
-void eepromChipErase() {
-  // Overwrite all locations with 0xFF
-  for (uint32_t a = 0; a < EEPROM_TOTAL_SIZE; ++a) {
-    eepromWrite(a, 0xFF);
-    // Optional: add a progress print every N bytes, or a short delay.
+void eepromChipErase()
+{
+  for (uint32_t a = 0; a < EEPROM_TOTAL_SIZE; a += EEPROM_PAGE_SIZE)
+  {
+      for (uint16_t i = 0; i < EEPROM_PAGE_SIZE; ++i)
+          eepromWrite(a + i, 0xFF);
+
+      pollButtons();           // keep UI responsive
+      pollEncoder();           //  –– » ––
+      auxTick();               //
+      delay(2);                // let I²C settle / yield to USB
   }
 }
 
