@@ -1,8 +1,6 @@
 #ifndef MENU_STATE_H
 #define MENU_STATE_H
-
 #include <Arduino.h>
-
 #define COLOR_BLACK   0x0000
 #define COLOR_WHITE   0xFFFF
 #define COLOR_RED     0xF800
@@ -11,10 +9,9 @@
 #define COLOR_YELLOW  0xFFE0
 #define COLOR_GRAY    0x8410
 #define COLOR_SELECTED_BG 0x0000
-
 #define SCREEN_MENU   0
 #define SCREEN_IDLE   1
-//constexpr uint8_t AUX_COUNT = 5;              //  ←  add this line
+
 
 enum TabID {
   TAB_OVERVIEW = 0,
@@ -34,6 +31,7 @@ enum BtnIdx {
 
 constexpr uint8_t NO_SELECTION = 0xFF;   // 255 = “nothing selected”
 const uint32_t IDLE_MS = 120000;
+constexpr uint16_t TAB_REDRAW_DELAY_MS = 200;
 
 struct MenuState {
   uint8_t screen = SCREEN_MENU;
@@ -42,6 +40,8 @@ struct MenuState {
   bool editMode = false;
   uint8_t editStateIndex = 0;
   uint32_t lastAction = 0;
+  bool     bodyRedrawPending = false;   // waiting for delay timeout
+  uint32_t bodyRedrawT0      = 0;       // millis() when waiting started
 };
 
 extern MenuState menuState;

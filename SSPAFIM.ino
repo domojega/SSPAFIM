@@ -26,6 +26,12 @@ void setup()
 void loop() {
   pollButtons();
   pollEncoder();
+  if (menuState.bodyRedrawPending &&
+    (millis() - menuState.bodyRedrawT0) >= TAB_REDRAW_DELAY_MS)
+{
+    updateTab();                        // your existing full repaint
+    menuState.bodyRedrawPending = false;
+}
   auxTick();
 
 delay(1);
