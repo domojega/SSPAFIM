@@ -31,7 +31,7 @@ enum BtnIdx {
 
 constexpr uint8_t NO_SELECTION = 0xFF;   // 255 = “nothing selected”
 const uint32_t IDLE_MS = 120000;
-constexpr uint16_t TAB_REDRAW_DELAY_MS = 200;
+constexpr uint16_t TAB_REDRAW_DELAY_MS = 350;
 
 struct MenuState {
   uint8_t screen = SCREEN_MENU;
