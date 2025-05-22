@@ -89,7 +89,21 @@ static void paintOverviewItem(uint8_t i,bool sel)
     }
     drawStatusCircle(460,y+12,col,outline);
 }
-
+/* ——— tab header ——— */
+void drawTabHeader(TabID tab, bool sel)        //  <-- no “static”
+{
+    const uint16_t x = 10 + tab * 160;
+    tft.fillRect(x, 0, 150, 24, sel ? COLOR_SELECTED_BG : COLOR_BLACK);
+    tft.setTextSize(2);
+    tft.setTextColor(sel ? COLOR_YELLOW : COLOR_WHITE);
+    tft.setCursor(x, 4);
+    switch (tab) {
+        case TAB_OVERVIEW:  tft.print("Overview");  break;
+        case TAB_SETTINGS:  tft.print("Settings");  break;
+        case TAB_AUXILIARY: tft.print("Aux");       break;
+        default:            break;
+    }
+}
 /* ─────────────────────────────────────────── */
 /* 3.  SETTINGS – placeholder rows            */
 /* ─────────────────────────────────────────── */

@@ -11,6 +11,7 @@ void updateEditIndicator(bool active);
 void showIdleScreen();
 void flashResetIndicator();
 void paintItem(uint8_t index, bool selected);
+void drawTabHeader(TabID id, bool selected);   // <- NEW public helper
 
 
 #endif

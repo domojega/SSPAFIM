@@ -39,4 +39,11 @@ delay(1);
       millis() - menuState.lastAction > IDLE_MS) {
     showIdleScreen();
   }
+/* — delayed body repaint — */
+if (menuState.bodyRedrawPending &&
+    millis() - menuState.bodyRedrawT0 >= 200)   // 200 ms grace
+{
+    updateTab();                       // heavy redraw
+    menuState.bodyRedrawPending = false;
+}
 }
