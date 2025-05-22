@@ -26,12 +26,6 @@ void setup()
 void loop() {
   pollButtons();
   pollEncoder();
-  if (menuState.bodyRedrawPending &&
-    (millis() - menuState.bodyRedrawT0) >= TAB_REDRAW_DELAY_MS)
-{
-    updateTab();                        // your existing full repaint
-    menuState.bodyRedrawPending = false;
-}
   auxTick();
 
 delay(1);
@@ -39,11 +33,4 @@ delay(1);
       millis() - menuState.lastAction > IDLE_MS) {
     showIdleScreen();
   }
-/* — delayed body repaint — */
-if (menuState.bodyRedrawPending &&
-    millis() - menuState.bodyRedrawT0 >= 200)   // 200 ms grace
-{
-    updateTab();                       // heavy redraw
-    menuState.bodyRedrawPending = false;
-}
 }

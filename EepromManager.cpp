@@ -40,7 +40,7 @@ void eepromWrite(uint32_t addr, uint8_t data) {
     Serial.println("[EEPROM] Write: address NACK");
   }
 
-  delay(5);  // mandatory EEPROM write delay
+  delay(6);  // mandatory EEPROM write delay
 }
 
 void eepromChipErase()
@@ -49,11 +49,12 @@ void eepromChipErase()
   {
       for (uint16_t i = 0; i < EEPROM_PAGE_SIZE; ++i)
           eepromWrite(a + i, 0xFF);
-
+      delay(30);                // let I²C settle / yield to USB
       pollButtons();           // keep UI responsive
       pollEncoder();           //  –– » ––
       auxTick();               //
-      delay(2);                // let I²C settle / yield to USB
+      delay(30);                // let I²C settle / yield to USB
+      loadOverviewSettings();
   }
 }
 
@@ -105,3 +106,25 @@ void loadOverviewSettings() {
     applyEditStateToItem(i, state);
   }
 }
+/* ───── Aux-tab autoreset persistence ───── */
+void saveAuxSettings()
+{
+    eepromWrite(AUX_CONFIG_ADDR, AUX_VALID_FLAG);
+    eepromWrite(AUX_CONFIG_ADDR + 1, auxState.autoResetEnable ? 1 : 0);
+
+    uint16_t ms = auxState.autoResetDelay;        // 0-1000 ms
+    eepromWrite(AUX_CONFIG_ADDR + 2, ms & 0xFF);  // LSB
+    eepromWrite(AUX_CONFIG_ADDR + 3, ms >> 8);    // MSB
+}
+
+void loadAuxSettings()
+{
+    if (eepromRead(AUX_CONFIG_ADDR) != AUX_VALID_FLAG) return;   // nothing saved
+
+    auxState.autoResetEnable = eepromRead(AUX_CONFIG_ADDR + 1) != 0;
+
+    uint16_t lsb = eepromRead(AUX_CONFIG_ADDR + 2);
+    uint16_t msb = eepromRead(AUX_CONFIG_ADDR + 3);
+    auxState.autoResetDelay  = (msb << 8) | lsb;
+}
+

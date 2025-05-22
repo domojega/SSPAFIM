@@ -1,3 +1,4 @@
+/*Hello*/
 /* ---------- AuxManager.cpp (full file) ---------- */
 #include "AuxManager.h"
 #include <Arduino.h>
@@ -111,7 +112,9 @@ void auxInit()
 {
     Wire.begin();
     if (detectRt()) rtSetDC();
+    loadAuxSettings();                 // ← add
     rtSetBrightness(auxState.lcdBrightness);
+    
 }
 
 /* ───── encoder handler ───── */
@@ -147,6 +150,7 @@ void auxHandleShort()
         auxState.editMode = AUX_EDIT_NONE;
         updateEditIndicator(false);
         redrawAuxRow(AUX_AUTO_RESET);
+        saveAuxSettings();
     }
 }
 
@@ -203,8 +207,9 @@ void auxHandleLong()
             tft.drawRect(100, 120, 280, 40, COLOR_WHITE);
             tft.setCursor(110, 130);
             tft.setTextSize(2); tft.setTextColor(COLOR_WHITE);
-            tft.print(F("Formatting …"));
+            tft.print(F("Formatting…"));
             eepromChipErase();
+            
             delay(600);
             redrawAuxList();
             break;
@@ -221,11 +226,13 @@ void auxHandleLong()
             } else {
                 auxState.editMode = AUX_EDIT_NONE;
                 updateEditIndicator(false);
+                saveAuxSettings();
             }
             redrawAuxRow(AUX_AUTO_RESET);
             break;
 
         default: break;
     }
+
 }
 /* ---------------- end of file ---------------- */
